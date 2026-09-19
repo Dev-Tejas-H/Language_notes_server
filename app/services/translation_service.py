@@ -1,5 +1,8 @@
 from deep_translator import GoogleTranslator
-from app.schemas.translation import TranslationResponse
+from deep_translator.exceptions import TooManyRequests, TranslationNotFound, LanguageNotSupportedException
+from app.schemas.translation import TranslationResponse, Language
+from fastapi import HTTPException
+import time
 
 
 SUPPORTED_LANGUAGES = {
@@ -33,16 +36,45 @@ SUPPORTED_LANGUAGES = {
 
 
 def translate_text(text: str, source_lang: str, target_lang: str) -> TranslationResponse:
-    """Translate text using Google Translate via deep-translator."""
+    """Translate text using Google Translate via deep-translator.
+    Retries once after 2 seconds on rate limit, then raises HTTP 429.
+    """
     translator = GoogleTranslator(source=source_lang, target=target_lang)
-    translated = translator.translate(text)
-    return TranslationResponse(
-        original_text=text,
-        translated_text=translated,
-        source_language=source_lang,
-        target_language=target_lang,
-    )
+
+    for attempt in range(2):  # try up to 2 times
+        try:
+            translated = translator.translate(text)
+            return TranslationResponse(
+                original_text=text,
+                translated_text=translated,
+                source_language=source_lang,
+                target_language=target_lang,
+            )
+        except TooManyRequests:
+            if attempt == 0:
+                time.sleep(2)  # wait 2s then retry once
+                continue
+            raise HTTPException(
+                status_code=429,
+                detail="Google Translate rate limit reached. Please wait a moment and try again.",
+            )
+        except LanguageNotSupportedException:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported language pair: '{source_lang}' → '{target_lang}'.",
+            )
+        except TranslationNotFound:
+            raise HTTPException(
+                status_code=422,
+                detail="Translation could not be found for the given text.",
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Translation service unavailable: {str(e)}",
+            )
 
 
-def get_supported_languages() -> dict:
-    return SUPPORTED_LANGUAGES
+def get_supported_languages() -> list[Language]:
+    """Return all supported languages as a list of {code, name} objects."""
+    return [Language(code=code, name=name) for code, name in SUPPORTED_LANGUAGES.items()]

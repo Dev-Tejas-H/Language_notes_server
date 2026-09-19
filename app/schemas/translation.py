@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 
 class TranslationRequest(BaseModel):
@@ -21,5 +21,10 @@ class TTSRequest(BaseModel):
     slow: bool = False
 
 
+class Language(BaseModel):
+    code: str
+    name: str
+
+
 class SupportedLanguagesResponse(BaseModel):
-    languages: dict  # code -> name
+    languages: List[Language]
